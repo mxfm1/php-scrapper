@@ -2,234 +2,167 @@
 
 require_once 'vendor/autoload.php';
 require_once 'offerParser.php';
+require 'store.php'; 
 
 use GuzzleHttp\Client;
 use Symfony\Component\DomCrawler\Crawler;
-use Symfony\Component\CssSelector\CssSelector;
 
+// =========================================================================
+// CONFIGURACIÓN Y VARIABLES GENERALES
+// =========================================================================
+$baseUrl           = 'https://www.bne.cl/data/ofertas/buscarListas';
+$resultadosPorPagina = 50;
+$regionObjetivo    = 375;
+$comunaObjetivo    = 1041;
+$archivoSalida     = 'ofertas_empleo_quinta_region.xlsx';
+$OFERTAS_BNE = "OFERTAS_BNE";
+$OFERTAS_OMIL = "OFERTAS_OMIL";
+
+// Instancias iniciales
 $Client = new Client();
+$excel  = new ReporteExcel($archivoSalida);
 
-$keywords= ['conserje','jardinero'];
-$url = 'https://www.bne.cl/data/ofertas/buscarListas?mostrar=empleo&textoLibre=aseo&numPaginaRecuperar=1&numResultadosPorPagina=10&clasificarYPaginar=true';
+// Configura las palabras clave aquí o déjalo vacío/null para realizar una búsqueda global
+$keywordsInput = ['conserje']; // Ejemplos: ['aseo'], [], null
 
-// $response = $Client->get($url);
-// $data = json_decode($response->getBody(), true);
+// =========================================================================
+// FUNCIONES DE BÚSQUEDA Y PROCESAMIENTO
+// =========================================================================
 
+/**
+ * Función principal para iniciar la obtención de empleos.
+ */
+function obtenerEmpleos($keywords = null) {
+    global $excel;
 
+    echo "================ INICIANDO BÚSQUEDA =================\n";
 
-// foreach ($keywords as $keyword) {
-//     $url = "ofertas/buscarListas?mostrar=empleo&textoLibre=$keyword&numPaginaRecuperar=1&numResultadosPorPagina=10&clasificarYPaginar=true";
+    // Convertir string separado por comas en array si es necesario
+    if (is_string($keywords)) {
+        $keywords = array_filter(array_map('trim', explode(',', $keywords)));
+    }
 
-//     // redirecciona hacia el detalle de la vista
-    
-//     $response = $Client->get($url);
-//     $data = json_decode($response->getBody(), true);
-//     print_r($data);
-// }
+    if (!empty($keywords) && is_array($keywords)) {
+        foreach ($keywords as $keyword) {
+            echo "Buscando por Palabra Clave: " . $keyword . "\n";
+            procesarBusqueda($keyword);
+        }
+    } else {
+        echo "Sin palabras clave definidas. Realizando búsqueda general...\n";
+        procesarBusqueda(null);
+    }
 
-// try{
-//     foreach($keywords as $keyword){
-//         $url = "https://www.bne.cl/data/ofertas/buscarListas?mostrar=empleo&textoLibre=$keyword&numPaginaRecuperar=1&numResultadosPorPagina=10&clasificarYPaginar=true";
+    $archivoGuardado = $excel->guardar();
+    echo "=====================================================\n";
+    echo "Archivo Excel generado correctamente: " . $archivoGuardado . "\n";
+}
 
-//         $response = $Client->get($url);
-//         $data = json_decode($response->getBody(), true);
-//         echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-//         $numeroPages = $data['paginaOfertas']['numPaginasTotal'];
-//         // $publicationEntries = $data['resultados'];
-//         // echo $publicationEntries;
-//         // echo $numeroPages;
-//         // foreach($publicationEntries as $entry){
-//         //     echo $entry['titulo'] . "\n";
-//         //     echo $entry['descripcion'] . "\n";
-//         //     echo $entry['codigo'] . "\n";
-//         //     echo "--------------------------------------------------\n";
-//         // }
-//     }
-// }catch(Exception $e){
-//     echo "Error: " . $e->getMessage();
-// }
-// try {
+/**
+ * Realiza la paginación y extracción de ofertas según la palabra clave recibida.
+ */
+function procesarBusqueda(?string $keyword = null) {
+    global $Client, $excel, $baseUrl, $regionObjetivo, $comunaObjetivo, $resultadosPorPagina,$OFERTAS_BNE, $OFERTAS_OMIL;
 
-//     $urlSufix = "https://www.bne.cl/data/ofertas/buscarListas?mostrar=empleo&textoLibre=";
-//     foreach($keywords as $keyword){
-//         echo "============== BUSQUEDA ACTUAL =================" . "\n";
-//         echo "Palabra Clave: " . $keyword . "\n";
-        
-//         $url = $urlSufix . $keyword . "&numPaginaRecuperar=1&numResultadosPorPagina=10&clasificarYPaginar=true";
-        
-//         $response = $Client->get($url);
-//         $data = json_decode($response->getBody(), true);
+    try {
+        // Build base query parameters
+        $queryParams = [
+            'mostrar'               => 'empleo',
+            'idRegion'              => $regionObjetivo,
+            'idComuna'              => $comunaObjetivo,
+            'numResultadosPorPagina' => $resultadosPorPagina,
+            'clasificarYPaginar'    => 'true',
+            'numPaginaRecuperar'    => 1
+        ];
 
-//         $numeroPages = $data['paginaOfertas']['numPaginasTotal'];
-//         $publicationEntries = $data['paginaOfertas']['resultados'];
-        
-//         echo "Numero de paginas: " . $numeroPages . "\n";
-//         echo "resultados obtenidos: " . count($publicationEntries) . "\n";
-//         // echo "data obtenida" . json_encode($publicationEntries, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n";
-//         echo "===============================" . "\n";
-//         for($counter = 0; $counter < $numeroPages; $counter++){
-//             echo "numero de pag: " . $counter . "\n";
-//             $url = $urlSufix . $keyword . "&numPaginaRecuperar=" . $counter . "&numResultadosPorPagina=10&clasificarYPaginar=true";
-//             $response = $Client->get($url);
-//             $data = json_decode($response->getBody(), true);
-//             // por cada registro dentro de la pagina hacer la inserción en la tabal de excel
-//             foreach($publicationEntries as $job_offer){
-//                 $jobOfferDetail = $Client.get($job_offer['codigo']);
-//                 echo '============ DETALLES OFERTA =================0';
-//                 echo "TITULO OFERTA: " . $job_offer['titulo'] . "\n";
-//                 echo "codigo de redirección por cada oferta" . $job_offer['codigo'] . "\n";
-                
-//             }
-//             echo "Numero de paginas: " . $numeroPages . "\n";
-//             echo "resultados obtenidos: " . count($publicationEntries) . "\n";
-//             // echo "data obtenida" . json_encode($publicationEntries, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n";
-//             echo "===============================" . "\n";
-//             usleep(300000);
-//         }
-        
-//     }
+        if (!empty($keyword)) {
+            $queryParams['textoLibre'] = $keyword;
+        }
 
-
-//     $response = $Client->get($url);
-//     $data = json_decode($response->getBody(), true); 
-
-//     $detailURL = 'https://www.bne.cl/oferta/2026-117295';
-//     $detailResponse = $Client->get($detailURL);
-//     $detailBody = $detailResponse->getBody();
-
-//     $Crawler = new Crawler($detailBody);
-//     $offerMapper = OfferParser::parse($Crawler);
-
-//     // echo json_encode($offerMapper, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-
-//      echo "------- DATOS DE CONTACTO ----------" ."\n";
-//     echo "Empresa: " . $offerMapper['empresa'] . "\n";
-//     echo "Actividad Económica: " . $offerMapper['actividad_economica'] . "\n";
-//     echo "imagen de contacto: " . $offerMapper['logo_url'] . "\n";
-//     echo "--------------------------------\n";
-
-//     echo "------- DATOS DE LA OFERTA ----------" ."\n";
-//     echo "Titulo oferta: " . $offerMapper['titulo'] . "\n";
-//     echo "Descripción: " . substr($offerMapper['descripcion'], 0, 50) . "...\n";
-//     echo "Región: " . $offerMapper['region'] . "\n";
-//     echo "Rango Remuneración: " . $offerMapper['remuneracion'] . "\n";
-//     echo "Jornada: " . $offerMapper['jornada'] . "\n";
-//     echo "Fecha Inicio: " . $offerMapper['fecha_inicio'] . "\n";
-//     echo "Fecha Término: " . $offerMapper['fecha_termino'] . "\n";
-//     echo "===============================" . "\n";
-
-//     echo "------- REQUISITOS SOLICITADOS ----------" ."\n";
-//     echo "nivel educacional: " . $offerMapper['nivel_educacional'] . "\n";
-//     echo "experiencia: " . $offerMapper['experiencia'] . "\n";
-//     echo "===============================" . "\n";
-
-//     echo "------- CARACTERISTICAS ----------\n";
-//     echo "Tipo de Contrato: " . $offerMapper['tipo_contrato'] . "\n";
-//     echo "Nivel de Cargo: " . $offerMapper['nivel_cargo'] . "\n";
-//     echo "Origen Oferta: " . $offerMapper['origen_oferta'] . "\n";
-//     echo "Práctica Profesional: " . $offerMapper['es_practica'] . "\n";
-//     echo "----------------------------------\n";
-// } catch(Exception $e) {
-//     echo "Error: " . $e->getMessage();
-// }
-
-try {
-    $urlSufix = "https://www.bne.cl/data/ofertas/buscarListas?mostrar=empleo&textoLibre=";
-
-    foreach ($keywords as $keyword) {
-        echo "============== INICIANDO BÚSQUEDA =================" . "\n";
-        echo "Palabra Clave: " . $keyword . "\n";
-        
-        // 1. Primera petición solo para obtener el número total de páginas
-        $urlInicial = $urlSufix . urlencode($keyword) . "&numPaginaRecuperar=1&numResultadosPorPagina=10&clasificarYPaginar=true";
+        // 1. Primera petición para obtener total de páginas
+        $urlInicial = $baseUrl . '?' . http_build_query($queryParams);
         $response = $Client->get($urlInicial);
         $data = json_decode($response->getBody(), true);
 
-        // Validamos que existan datos antes de continuar
         if (!isset($data['paginaOfertas'])) {
-            echo "No se encontraron resultados para: " . $keyword . "\n";
-            continue;
+            echo "No se encontraron resultados para el criterio actual.\n";
+            return;
         }
 
-        $numeroPages = $data['paginaOfertas']['numPaginasTotal'];
+        $numeroPages = $data['paginaOfertas']['numPaginasTotal'] ?? 0;
         echo "Total de páginas encontradas: " . $numeroPages . "\n";
-        echo "==================================================" . "\n";
+        echo "-----------------------------------------------------\n";
 
-        // 2. Iteramos por cada una de las páginas (generalmente las APIs de paginación empiezan en 1 o 0, asumo 1 según tu URL inicial)
+        // 2. Recorrer las páginas
         for ($page = 1; $page <= $numeroPages; $page++) {
             echo "--- Procesando Página: " . $page . " de " . $numeroPages . " ---\n";
+
+            $queryParams['numPaginaRecuperar'] = $page;
+            $urlPage = $baseUrl . '?' . http_build_query($queryParams);
             
-            $urlPage = $urlSufix . urlencode($keyword) . "&numPaginaRecuperar=" . $page . "&numResultadosPorPagina=10&clasificarYPaginar=true";
             $response = $Client->get($urlPage);
             $pageData = json_decode($response->getBody(), true);
 
             $offersInPage = $pageData['paginaOfertas']['resultados'] ?? [];
             echo "Ofertas encontradas en esta página: " . count($offersInPage) . "\n";
 
-            // 3. Por cada oferta de la página actual, obtenemos su código y su detalle
+            // 3. Procesar cada oferta individual
             foreach ($offersInPage as $job_offer) {
                 $codigoOferta = $job_offer['codigo'];
                 echo "-> Procesando Oferta: [" . $codigoOferta . "] - " . $job_offer['titulo'] . "\n";
 
                 try {
-                    // Reemplaza esta URL por el endpoint real que use la BNE para ver el detalle mediante el código
-                    $urlDetalle = "https://bne.cl/oferta/" . $codigoOferta; 
-                    
+                    $urlDetalle = "https://bne.cl/oferta/" . $codigoOferta;
                     $responseDetail = $Client->get($urlDetalle);
                     $jobOfferDetail = $responseDetail->getBody();
-                    echo '=====DETALLE OFERTA===========' . "\n" ;
-                    // ==========================================================
-                    // AQUÍ ENTRALOS DATOS RELEVANTES ($jobOfferDetail) 
-                    // Puedes proceder a insertarlos en tu Excel / Base de datos
-                    // ==========================================================
 
-                    $Crawler = new Crawler($jobOfferDetail);
+                    $Crawler = new Crawler((string) $jobOfferDetail);
                     $offerMapper = OfferParser::parse($Crawler);
 
-                    echo "--- DATOS DE CONTACTO ---" . "\n";
-                    echo "Empresa: " . $offerMapper['empresa'] . "\n";
-                    echo "Actividad Económica: " . $offerMapper['actividad_economica'] . "\n";
-                    echo "URL Logo: " . $offerMapper['logo_url'] . "\n";
-                    echo "\n";
+                    $validar = $excel->validarEntryNuevo($codigoOferta,$OFERTAS_OMIL);
+                    if ($validar == false) {
+                        continue;
+                    }
 
-                    echo "--- DATOS DE LA OFERTA ---" . "\n";
-                    echo "Título: " . $offerMapper['titulo'] . "\n";
-                    echo "Descripción: " . $offerMapper['descripcion'] . "\n";
-                    echo "Región: " . $offerMapper['region'] . "\n";
-                    echo "Rango Remuneración: " . $offerMapper['remuneracion'] . "\n";
-                    echo "Jornada: " . $offerMapper['jornada'] . "\n";
-                    echo "Fecha Inicio: " . $offerMapper['fecha_inicio'] . "\n";
-                    echo "Fecha Término: " . $offerMapper['fecha_termino'] . "\n";
-                    echo "\n";
-
-                    echo "--- REQUISITOS SOLICITADOS ---" . "\n";
-                    echo "Nivel Educacional: " . $offerMapper['nivel_educacional'] . "\n";
-                    echo "Experiencia: " . $offerMapper['experiencia'] . "\n";
-                    echo "\n";
-
-                    echo "--- CARACTERÍSTICAS ---" . "\n";
-                    echo "Tipo de Contrato: " . $offerMapper['tipo_contrato'] . "\n";
-                    echo "Nivel de Cargo: " . $offerMapper['nivel_cargo'] . "\n";
-                    echo "Origen Oferta: " . $offerMapper['origen_oferta'] . "\n";
-                    echo "Es Práctica: " . $offerMapper['es_practica'] . "\n";
-                    echo "===========================\n";
                     
+                    $excel->agregarOferta(
+                        $OFERTAS_OMIL,
+                        $codigoOferta, 
+                        $offerMapper['empresa'], 
+                        $offerMapper['actividad_economica'], 
+                        $offerMapper['logo_url'],
+                        $offerMapper['titulo'],
+                        $offerMapper['descripcion'],
+                        $offerMapper['region'],
+                        $offerMapper['remuneracion'],
+                        $offerMapper['jornada'],
+                        $offerMapper['fecha_inicio'],
+                        $offerMapper['fecha_termino'],
+                        $offerMapper['nivel_educacional'],
+                        $offerMapper['experiencia'],
+                        $offerMapper['tipo_contrato'],
+                        $offerMapper['nivel_cargo'],
+                        $offerMapper['origen_oferta'],
+                        $offerMapper['es_practica']
+                    );
+
                 } catch (\Exception $e) {
                     echo "Error al obtener el detalle de la oferta " . $codigoOferta . ": " . $e->getMessage() . "\n";
                 }
 
-                // Pausa corta entre ofertas para evitar bloqueos (Anti-bot WAF)
-                usleep(500000); // 0.5 segundos
+                usleep(500000); // 0.5 segundos de pausa entre ofertas
             }
 
-            // Pausa entre páginas (300ms)
-            usleep(300000); 
+            usleep(300000); // 0.3 segundos de pausa entre páginas
         }
-    }
-} catch (\Exception $e) {
-    echo "Error general en el proceso: " . $e->getMessage() . "\n";
-}
-// Guarda el código fuente real en un archivo
-// file_put_contents('estructura_bne.html', $html);
 
-// echo "Estructura guardada. Abre 'estructura_bne.html' en tu editor para ver el árbol.";
+    } catch (\Exception $e) {
+        echo "Error en la ejecución de la búsqueda: " . $e->getMessage() . "\n";
+    }
+}
+
+// =========================================================================
+// EJECUCIÓN
+// =========================================================================
+
+// Llama a la función pasándole el array/string de keywords o déjalo vacío
+obtenerEmpleos($keywordsInput);
